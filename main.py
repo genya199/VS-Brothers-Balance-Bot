@@ -5,6 +5,7 @@ import sys
 from datetime import datetime
 from io import StringIO
 
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -703,6 +704,29 @@ async def unknown_callback(callback: CallbackQuery):
     logger.warning(f"Невідомий callback: {callback.data}")
 
 
+# HTTP сервер для health check
+async def health_check(request):
+    """Health check endpoint"""
+    return web.Response(text="OK")
+
+
+async def start_web_server():
+    """Запуск HTTP сервера для health check"""
+    try:
+        app = web.Application()
+        app.router.add_get('/', health_check)
+        app.router.add_get('/health', health_check)
+        
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', 8000)
+        await site.start()
+        
+        logger.info("HTTP сервер запущено на порту 8000")
+    except Exception as e:
+        logger.error(f"Помилка запуску HTTP сервера: {e}")
+
+
 async def main():
     """Основна функція запуску бота"""
     global db
@@ -718,8 +742,11 @@ async def main():
         # Видаляємо webhook (якщо був встановлений)
         await bot.delete_webhook(drop_pending_updates=True)
         
-        # Запускаємо polling
-        await dp.start_polling(bot)
+        # Запускаємо обидва сервіси паралельно
+        await asyncio.gather(
+            start_web_server(),
+            dp.start_polling(bot)
+        )
         
     except Exception as e:
         logger.error(f"Критична помилка: {e}")
